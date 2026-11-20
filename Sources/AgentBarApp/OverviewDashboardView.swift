@@ -134,7 +134,7 @@ struct OverviewDashboardView: View {
             if !sub.quotas.isEmpty {
                 VStack(spacing: 4) {
                     ForEach(Array(sub.quotas.enumerated()), id: \.offset) { _, quota in
-                        quotaProgressBar(quota)
+                        quotaProgressBar(quota, labelWidth: sub.kind == .antigravity ? 142 : 58)
                     }
                 }
             }
@@ -151,20 +151,22 @@ struct OverviewDashboardView: View {
         )
     }
 
-    private func quotaProgressBar(_ quota: QuotaWindowReading) -> some View {
+    private func quotaProgressBar(_ quota: QuotaWindowReading, labelWidth: CGFloat) -> some View {
         let frac = min(1.0, max(0.0, quota.usedPercent / 100.0))
         let resetText = quota.resetsAt.map { formatResetTime($0) } ?? ""
         return HStack(spacing: 7) {
             Text(quota.label)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
+                .lineLimit(1)
+                .help(quota.label)
+                .frame(width: labelWidth, alignment: .leading)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.10))
                     Capsule()
                         .fill(frac > 0.8 ? Color.orange : Color.accentColor)
-                        .frame(width: max(3, geo.size.width * frac))
+                        .frame(width: geo.size.width * frac)
                 }
             }
             .frame(height: 4.5)

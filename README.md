@@ -2,6 +2,8 @@
 
 **原生 macOS 液态玻璃（Liquid Glass）菜单栏 AI Agent 会话监控、指标统计与一键审批工具。**
 
+AgentBar 可从本机 Antigravity 2.0 的会话摘要库读取近期会话。没有可显示的摘要时，如果 Antigravity 正在运行，会话页会显示应用入口。点击条目可打开或切回 Antigravity。本机安装并登录 Antigravity CLI（`agy` 1.1.11 或更新版本）后，「订阅会员 & Dashboard」也会读取 CLI 提供的套餐名称、各模型组额度及重置时间。
+
 ## 构建与打包 DMG
 
 ```bash

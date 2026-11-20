@@ -16,6 +16,9 @@ final class AppModel {
     var subscriptionCards: [SubscriptionCardItem] = []
     var isRefreshingBalances: Bool = false
     var lastBalanceRefreshAt: Date?
+    private var antigravityPlan: String?
+    private var antigravityQuotas: [QuotaWindowReading] = []
+    private var lastAntigravityPlanAttemptAt: Date?
 
     var isShowingOverview: Bool = false {
         didSet {
@@ -515,12 +518,10 @@ final class AppModel {
 
     func refreshBalancesIfStale(maxAge: TimeInterval) {
         guard !demoModeEnabled, !isRefreshingBalances else { return }
-        let enabled = balanceSources.filter(\.isEnabled)
-        guard !enabled.isEmpty else { return }
-        let isStale = lastBalanceRefreshAt == nil
-            || balanceReadings.isEmpty
-            || Date().timeIntervalSince(lastBalanceRefreshAt!) >= maxAge
-        if isStale {
+        let hasBalanceSource = balanceSources.contains(where: \.isEnabled)
+        guard hasBalanceSource || AntigravityUsageService.executable != nil else { return }
+        let isStale = lastBalanceRefreshAt.map { Date().timeIntervalSince($0) >= maxAge } ?? true
+        if isStale || (hasBalanceSource && balanceReadings.isEmpty) {
             Task { await refreshBalances(silent: true) }
         }
     }
@@ -557,8 +558,14 @@ final class AppModel {
         let remoteExisting = sessions.filter { !$0.host.isLocal }
         self.sessions = local + remoteExisting
         self.hostStates[.local] = HostConnectionState(host: .local, isOnline: true)
-        self.subscriptionCards = SubscriptionAndStatsService.detectLocalSubscriptions(sessions: self.sessions)
+        updateSubscriptionCards()
         notifyStatusBar()
+    }
+
+    private func updateSubscriptionCards() {
+        subscriptionCards = SubscriptionAndStatsService.detectLocalSubscriptions(
+            sessions: sessions, antigravityPlan: antigravityPlan, antigravityQuotas: antigravityQuotas
+        )
     }
 
     func refreshSSHHosts() async {
@@ -669,14 +676,20 @@ final class AppModel {
     func refreshBalances(silent: Bool = false) async {
         guard !demoModeEnabled, !isRefreshingBalances else { return }
         let enabled = balanceSources.filter(\.isEnabled)
-        guard !enabled.isEmpty else {
+        let antigravityCLI = AntigravityUsageService.executable
+        guard !enabled.isEmpty || antigravityCLI != nil else {
             balanceReadings = []
             saveCodable(balanceReadings, key: "cachedBalanceReadings")
+            antigravityPlan = nil
+            antigravityQuotas = []
+            lastAntigravityPlanAttemptAt = nil
+            updateSubscriptionCards()
             return
         }
         isRefreshingBalances = true
         defer { isRefreshingBalances = false }
 
+        async let antigravityRefresh: Void = refreshAntigravityUsage(executable: antigravityCLI, forcePlan: !silent)
         let previousByID = Dictionary(uniqueKeysWithValues: balanceReadings.map { ($0.sourceID, $0) })
         var updated: [BalanceReading] = []
         for src in enabled {
@@ -693,9 +706,30 @@ final class AppModel {
                 updated.append(reading)
             }
         }
+        await antigravityRefresh
+        guard !demoModeEnabled else { return }
         balanceReadings = updated
         lastBalanceRefreshAt = Date()
         saveCodable(updated, key: "cachedBalanceReadings")
+    }
+
+    private func refreshAntigravityUsage(executable: URL?, forcePlan: Bool) async {
+        if let executable {
+            let planIsStale = lastAntigravityPlanAttemptAt.map { Date().timeIntervalSince($0) >= 3600 } ?? true
+            let includePlan = forcePlan || planIsStale
+            let result = await AntigravityUsageService.fetch(executable: executable, includePlan: includePlan)
+            guard !demoModeEnabled else { return }
+            antigravityQuotas = result.quotas
+            if includePlan && !result.quotas.isEmpty {
+                lastAntigravityPlanAttemptAt = Date()
+                antigravityPlan = result.plan
+            }
+        } else {
+            antigravityQuotas = []
+            antigravityPlan = nil
+            lastAntigravityPlanAttemptAt = nil
+        }
+        updateSubscriptionCards()
     }
 
     func openDashboardWindow(for reading: BalanceReading) {
